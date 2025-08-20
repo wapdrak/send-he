@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -30,8 +29,6 @@
         }
         .border-groove { border-style: groove; }
         
-        /* --- STYLES TO SUPPORT THE JS FIX --- */
-        /* Ensure the input field and its container are LTR */
         .iti {
             direction: ltr;
         }
@@ -39,7 +36,6 @@
             text-align: left;
         }
         
-        /* Force the dropdown list to open from the left and be LTR */
         .iti__country-list {
             left: 0 !important;
             right: auto !important;
@@ -50,7 +46,6 @@
             text-align: left;
         }
         
-        /* General theme styling for the dropdown */
         .iti__country-list { 
             background-color: #1f2937; 
             border-color: #4b5563; 
@@ -64,7 +59,6 @@
             border-color: #4b5563;
         }
         
-        /* Custom validation styles */
         .iti--invalid .iti__tel-input {
             border-color: red !important;
         }
@@ -81,7 +75,6 @@
             content: "✔"; color: limegreen; font-size: 1.5rem; vertical-align: middle;
         }
 
-        /* Fix for mobile zoom and responsive font size */
         #phone, #username {
             font-size: 16px;
         }
@@ -120,7 +113,6 @@
                         
                         <button type="button" @click="selectContact()" x-show="contactPickerSupported" class="flex items-center justify-center gap-2 mx-auto text-white bg-gray-700 rounded-lg border-4 py-2 px-3 w-full text-base sm:text-lg mt-2" title="בחר מתוך אנשי הקשר"><i class="fas fa-address-book"></i> בחר מתוך אנשי הקשר</button>
                         
-                        <!-- NEW: Error message for Contacts API -->
                         <div x-show="contactApiError" x-text="contactApiError" class="text-red-500 bg-black bg-opacity-70 rounded-lg p-2 mt-2 text-sm" x-transition></div>
 
                         <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -163,34 +155,54 @@
             Alpine.data('contactForm', () => ({
                 phoneInput: null, message: '', username: '', phoneEl: null,
                 contactPickerSupported: false,
-                contactApiError: '', // State for the error message
+                contactApiError: '',
                 init() {
                     this.phoneEl = document.querySelector("#phone");
                     
-                    // --- THE DEFINITIVE FIX ---
-                    // 1. Temporarily switch the entire document to LTR mode
                     const originalDir = document.documentElement.dir;
                     document.documentElement.dir = 'ltr';
 
-                    // 2. Initialize the library. It will now render in LTR mode by default.
                     this.phoneInput = window.intlTelInput(this.phoneEl, {
                         initialCountry: "il",
                         showSearchBox: true,
                         separateDialCode: true,
-                        utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/20.3.0/js/utils.js",
-                        // THIS IS THE NEW LINE TO ALLOW FIXED LINE NUMBERS
-                        placeholderNumberType: "FIXED_LINE_OR_MOBILE",
                     });
                     
-                    // 3. Switch the document direction back to the original (RTL).
-                    // This happens so fast the user won't notice, but the library is already rendered correctly.
                     document.documentElement.dir = originalDir;
-                    // --- END OF FIX ---
-
-                    this.phoneEl.addEventListener('countrychange', () => this.validateNumber());
 
                     if ('contacts' in navigator && 'select' in navigator.contacts) {
                         this.contactPickerSupported = true;
+                    }
+                },
+                isNumberValid() {
+                    // --- FINAL CUSTOM VALIDATION LOGIC FOR ISRAEL ---
+                    const number = this.phoneEl.value;
+                    if (!number.trim()) return false;
+
+                    // 1. Remove all non-digit characters (like '-')
+                    let sanitizedNumber = number.replace(/\D/g, '');
+
+                    // 2. Handle numbers starting with '0'
+                    if (sanitizedNumber.startsWith('0')) {
+                        // Mobile numbers start with 05 and must have 10 digits
+                        if (sanitizedNumber.startsWith('05')) {
+                            return sanitizedNumber.length === 10;
+                        }
+                        // Fixed-line numbers (e.g., 04, 03, 09) must have 9 digits
+                        else {
+                            return sanitizedNumber.length === 9;
+                        }
+                    } 
+                    // 3. Handle numbers NOT starting with '0'
+                    else {
+                        // Mobile numbers start with 5 and must have 9 digits
+                        if (sanitizedNumber.startsWith('5')) {
+                            return sanitizedNumber.length === 9;
+                        }
+                        // Fixed-line numbers (e.g., 4, 3, 9) must have 8 digits
+                        else {
+                            return sanitizedNumber.length === 8;
+                        }
                     }
                 },
                 validateNumber() {
@@ -201,7 +213,7 @@
                     iconElement.classList.remove('valid', 'invalid');
                     
                     if (this.phoneEl.value.trim()) {
-                        if (this.phoneInput.isValidNumber()) {
+                        if (this.isNumberValid()) {
                             itiElement.classList.add('iti--valid');
                             iconElement.classList.add('valid');
                         } else {
@@ -211,7 +223,7 @@
                     }
                 },
                 async selectContact() {
-                    this.contactApiError = ''; // Reset error on each click
+                    this.contactApiError = '';
                     try {
                         const contacts = await navigator.contacts.select(['tel'], {multiple: false});
                         if (contacts.length > 0 && contacts[0].tel.length > 0) {
@@ -220,20 +232,23 @@
                         }
                     } catch (ex) {
                         console.error("Error selecting contact.", ex);
-                        // Display a user-friendly message
                         this.contactApiError = 'Výběr kontaktů není v tomto náhledu podporován.';
-                        // Optional: hide the message after a few seconds
                         setTimeout(() => { this.contactApiError = ''; }, 5000);
                     }
                 },
                 handleAction(type) {
-                    this.validateNumber(); // Re-validate before action
+                    const isNumberGood = this.isNumberValid();
+                    this.validateNumber();
+                    
                     const encodedMessage = encodeURIComponent(this.message.trim());
                     let url = '';
                     switch(type) {
                         case 'whatsapp': case 'sms': case 'tel': case 'signal': case 'viber':
-                            if (this.phoneInput.isValidNumber()) {
+                            if (isNumberGood) {
+                                // Set the number in the library to get the full international format
+                                this.phoneInput.setNumber(this.phoneEl.value);
                                 const fullNumber = this.phoneInput.getNumber();
+                                
                                 if (type === 'whatsapp') url = `https://api.whatsapp.com/send?phone=${fullNumber.substring(1)}&text=${encodedMessage}`;
                                 if (type === 'sms') url = `sms:${fullNumber}?body=${encodedMessage}`;
                                 if (type === 'tel') url = `tel:${fullNumber}`;
@@ -259,7 +274,7 @@
                     this.phoneInput.setNumber(''); 
                     this.message = ''; 
                     this.username = '';
-                    this.validateNumber(); // This will clear the validation state
+                    this.validateNumber();
                 }
             }));
         });
