@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -156,6 +157,7 @@
                 phoneInput: null, message: '', username: '', phoneEl: null,
                 contactPickerSupported: false,
                 contactApiError: '',
+                isUtilsLoaded: false,
                 init() {
                     this.phoneEl = document.querySelector("#phone");
                     
@@ -166,43 +168,53 @@
                         initialCountry: "il",
                         showSearchBox: true,
                         separateDialCode: true,
+                        utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/20.3.0/js/utils.js",
                     });
                     
                     document.documentElement.dir = originalDir;
+                    
+                    this.phoneInput.promise.then(() => {
+                        console.log("Utils script loaded successfully. Full validation is now enabled.");
+                        this.isUtilsLoaded = true;
+                        this.phoneEl.addEventListener('countrychange', () => this.validateNumber());
+                        this.validateNumber();
+                    }).catch(error => {
+                        console.error("Error loading utils script:", error);
+                    });
 
                     if ('contacts' in navigator && 'select' in navigator.contacts) {
                         this.contactPickerSupported = true;
                     }
                 },
                 isNumberValid() {
-                    // --- FINAL CUSTOM VALIDATION LOGIC FOR ISRAEL ---
-                    const number = this.phoneEl.value;
-                    if (!number.trim()) return false;
+                    const country = this.phoneInput.getSelectedCountryData().iso2;
 
-                    // 1. Remove all non-digit characters (like '-')
-                    let sanitizedNumber = number.replace(/\D/g, '');
+                    // --- HYBRID VALIDATION ---
+                    if (country === 'il') {
+                        // Use our battle-tested custom logic for Israel
+                        const number = this.phoneEl.value;
+                        if (!number.trim()) return false;
+                        let sanitizedNumber = number.replace(/\D/g, '');
 
-                    // 2. Handle numbers starting with '0'
-                    if (sanitizedNumber.startsWith('0')) {
-                        // Mobile numbers start with 05 and must have 10 digits
-                        if (sanitizedNumber.startsWith('05')) {
-                            return sanitizedNumber.length === 10;
+                        if (sanitizedNumber.startsWith('0')) {
+                            if (sanitizedNumber.startsWith('05')) {
+                                return sanitizedNumber.length === 10;
+                            } else {
+                                return sanitizedNumber.length === 9;
+                            }
+                        } else {
+                            if (sanitizedNumber.length === 9 && (sanitizedNumber.startsWith('5'))) {
+                                return true;
+                            }
+                            if (sanitizedNumber.length === 8 && !(sanitizedNumber.startsWith('5'))) {
+                                return true;
+                            }
+                            return false;
                         }
-                        // Fixed-line numbers (e.g., 04, 03, 09) must have 9 digits
-                        else {
-                            return sanitizedNumber.length === 9;
-                        }
-                    } 
-                    // 3. Handle numbers NOT starting with '0'
-                    else {
-                        // Mobile numbers start with 5 and must have 9 digits
-                        if (sanitizedNumber.startsWith('5')) {
-                            return sanitizedNumber.length === 9;
-                        }
-                        // Fixed-line numbers (e.g., 4, 3, 9) must have 8 digits
-                        else {
-                            return sanitizedNumber.length === 8;
-                        }
+                    } else {
+                        // For all other countries, use the reliable library validation
+                        if (!this.isUtilsLoaded) return false; // Guard clause
+                        return this.phoneInput.isValidNumber();
                     }
                 },
                 validateNumber() {
@@ -245,7 +257,6 @@
                     switch(type) {
                         case 'whatsapp': case 'sms': case 'tel': case 'signal': case 'viber':
                             if (isNumberGood) {
-                                // Set the number in the library to get the full international format
                                 this.phoneInput.setNumber(this.phoneEl.value);
                                 const fullNumber = this.phoneInput.getNumber();
                                 
